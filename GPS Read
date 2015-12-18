@@ -1,0 +1,323 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+
+using System.IO.Ports;
+
+using DevExpress.XtraMap;
+using System.Collections;
+
+namespace GpsProject
+{
+    public partial class FrmGps : DevExpress.XtraBars.Ribbon.RibbonForm
+    {
+        public FrmGps()
+        {
+            InitializeComponent();
+
+            #region Map Loading
+            ImageTilesLayer tilesLayer = new ImageTilesLayer();
+            mapControl1.Layers.Add(tilesLayer);
+
+            OpenStreetMapDataProvider provider = new OpenStreetMapDataProvider();
+            tilesLayer.DataProvider = provider;
+            mapControl1.Layers.Add(itemsLayer);
+
+            dataAdapter.Mappings.Latitude = "Latitude";
+            dataAdapter.Mappings.Longitude = "Longitude";
+            dataAdapter.Mappings.Text = "Text";
+
+            itemsLayer.Data = dataAdapter;
+            itemsLayer.ItemImageIndex = 0;
+            #endregion
+
+            CreateNewCoordTable();
+
+            SetSerialPort();
+
+            //System.Threading.Thread.Sleep(2000);
+        }
+
+        #region Valiables
+        VectorItemsLayer itemsLayer = new VectorItemsLayer();
+        ListSourceDataAdapter dataAdapter = new ListSourceDataAdapter();
+
+        DataTable dt = new DataTable("Table");
+        int CoordCount = 0;
+
+        #endregion
+
+        #region Functions
+        private void CreateNewCoordTable()
+        {
+            CoordCount = 0;
+
+            dt.Rows.Clear();
+            dt = new DataTable("Table");
+
+            dt.Columns.Add("Latitude", typeof(double));
+            dt.Columns.Add("Longitude", typeof(double));
+            dt.Columns.Add("Text", typeof(String));
+
+            dataAdapter.DataSource = null;
+
+            mapControl1.Zoom(1, true);
+        }
+
+        private void FocusCoord(GeoPoint geo)
+        {
+            mapControl1.Zoom(1, true);
+            mapControl1.CenterPoint = geo;
+            mapControl1.Zoom(10, true);
+        }
+
+        private DataTable CreateTable(GeoPoint geo)
+        {
+            CoordCount++;
+
+            DataRow row = dt.NewRow();
+            row["Latitude"] = geo.Latitude;
+            row["Longitude"] = geo.Longitude;
+            row["Text"] = CoordCount;
+            dt.Rows.Add(row);
+
+            return dt;
+        }
+
+        private DataTable CreateTable(double latitude, double longitude)
+        {
+            return CreateTable(new GeoPoint(latitude, longitude));
+        }
+
+        public void ShowCoord(GeoPoint geo)
+        {
+            dataAdapter.DataSource = CreateTable(geo);
+            FocusCoord(geo);
+        }
+        public void ShowCoord(double longitude, double latitude)
+        {
+            ShowCoord(new GeoPoint(latitude, longitude));
+        }
+
+        public GeoPoint[] HashtableToGeoPointArray() // HAST TABLOSUNDAKI VERİLERİ DİZİYE ATAR
+        {
+            GeoPoint[] geoPoint = new GeoPoint[Example.hashTable.Count];
+
+            int i = 0;
+            foreach (DictionaryEntry entry in Example.hashTable)
+            {
+                geoPoint[i++] = (GeoPoint)entry.Value;
+            }
+
+            return geoPoint;
+        }
+
+        public GeoPoint[] FillHashtable() // HASH TABLOSUNU DOLDURUR VE DİZİYE ATAR
+        {
+            Example.hashTable.Clear();
+
+            for (int i = 0; i < Example.coordsList.Count; i++) // HASTABLE AT
+            {
+                Example.hashTable["Coord" + i] = Example.coordsList[i];
+            }
+
+            GeoPoint[] geoPoints = HashtableToGeoPointArray(); // DİZİYE AT
+
+            return geoPoints;
+        }
+
+        public void WriteGeoPoint(GeoPoint[] geoPoints)
+        {
+            imageListCoord.Items.Clear();
+
+            for (int i = 0; i < geoPoints.Length; i++)
+            {
+                imageListCoord.Items.Add(geoPoints[i], 0);
+            }
+        }
+
+        #endregion
+
+        #region Arduino
+
+        bool arduinoStatus = false;
+
+        SerialPort serialPort = new SerialPort();
+
+        private void SetSerialPort()
+        {
+            CloseSerialPort();
+
+            serialPort.PortName = "COM3";
+            serialPort.BaudRate = 115200;
+
+            try
+            {
+                serialPort.Open();
+                arduinoStatus = true;
+            }
+            catch { arduinoStatus = false; }
+
+            if (arduinoStatus)
+            {
+                lblDurum.Caption = "Bağlandı";
+            }
+            else
+            {
+                lblDurum.Caption = "Bağlanmadı";
+            }
+        }
+
+        private void CloseSerialPort()
+        {
+            if (serialPort.IsOpen)
+            {
+                try
+                {
+                    serialPort.Close();
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private void ReadSerial()
+        {
+            string readSerial;
+            do
+            {
+                readSerial = serialPort.ReadLine();
+            } while (String.IsNullOrEmpty(readSerial));
+
+            try
+            {
+                string[] coords = readSerial.Split(',');
+
+                Example.arduinoCoordList.Push(new GeoPoint(Convert.ToInt32(coords[0]), Convert.ToInt32(coords[1])));
+
+                Example.coordsList.Add((new GeoPoint(Convert.ToInt32(coords[0]), Convert.ToInt32(coords[1]))));
+
+                ShowCoord(Example.arduinoCoordList.Peek());
+
+                imageListCoord.Items.Add(Example.arduinoCoordList.Peek(), 0);
+            }
+            catch
+            {
+
+            }
+        }
+
+        #endregion
+
+        #region Events
+
+        private void FrmGps_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            CloseSerialPort();
+        }
+
+        private void btnKonumBul_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            FrmFindLocations findLoc = new FrmFindLocations();
+            findLoc.frmGps = this;
+            findLoc.ShowDialog();
+
+            // BAĞLI LİSTEDEN VERİ ÇEKİLDİ            
+            imageListCoord.Items.Clear();
+            for (int i = 0; i < Example.coordsList.Count; i++)
+            {
+                imageListCoord.Items.Add(Example.coordsList[i], 0);
+            }
+        }
+
+        private void btnCanliIzle_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            ReadSerial();
+        }
+
+        private void btnCheckGPS_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            SetSerialPort();
+            DevExpress.XtraEditors.XtraMessageBox.Show("Arduino Durumu : " + lblDurum.Caption, "Arduino Status", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void btnEnlemSirala_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            GeoPoint[] geoPoints = FillHashtable();
+            BubbleSort.SortLatitude(geoPoints); // BUBBLE SORT
+
+            WriteGeoPoint(geoPoints);
+        }
+
+        private void btnBoylamSirala_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            GeoPoint[] geoPoints = FillHashtable();
+            SelectionSort.SortLangitude(geoPoints); // SELECTION SORT
+
+            WriteGeoPoint(geoPoints);
+        }
+
+        private void btnYakinlastir_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            mapControl1.ZoomIn();
+        }
+
+        private void btnUzaklastir_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            mapControl1.ZoomOut();
+        }
+
+        private void btnVarsayilanUzaklik_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            mapControl1.Zoom(10, true);
+        }
+
+        private void btnTemizle_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            imageListCoord.Items.Clear();
+
+
+            Example.coordsList.Clear();
+            Example.hashTable.Clear();
+            Example.arduinoCoordList.Clear();
+
+            CreateNewCoordTable();          
+        }
+
+        private void btnHakkimizda_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            FrmSplash splashScreen = new FrmSplash();
+            splashScreen.ShowDialog();
+        }
+
+        private void btnYardim_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e)
+        {
+            System.Diagnostics.Process.Start("https://github.com/EmbeddedExperts/GPSTrackingSystem");
+        }
+
+        private void btnCikis_ItemClick(object sender, DevExpress.XtraBars.ItemClickEventArgs e) // Çıkış
+        {
+            this.Close();
+            Application.Exit();
+            return;
+        }
+
+        private void dockManager1_Docking(object sender, DevExpress.XtraBars.Docking.DockingEventArgs e) // Dock hareket etmesin
+        {
+            e.Cancel = true;
+        }
+        #endregion
+
+       
+
+
+
+    }
+}
