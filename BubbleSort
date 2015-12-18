@@ -1,0 +1,29 @@
+using DevExpress.XtraMap;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace GpsProject
+{
+    public static class BubbleSort
+    {
+        public static void SortLatitude(GeoPoint[] points)
+        {
+            for (int i = 0; i < points.Length - 1; i++)
+            {
+                for (int j = 1; j < points.Length - i; j++)
+                {
+                    if (points[j].Latitude < points[j - 1].Latitude)
+                    {
+                        GeoPoint temp = points[j - 1];
+                        points[j - 1] = points[j];
+                        points[j] = temp;
+                    }
+                }
+
+            }
+        }
+    }
+}
